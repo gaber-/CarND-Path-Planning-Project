@@ -12,6 +12,7 @@
 
 #define M_VEL 49.5
 #define MIN_DIST 30
+#define REAR_DIST 5
 
 using namespace std;
 
@@ -167,6 +168,28 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+bool lane_free(vector<vector<double>> sensor_fusion, double car_s, int prev_size, int lane){
+    for(int i=0; i< sensor_fusion.size(); i++){
+        float d = sensor_fusion[i][6];
+        // check if car is in same lane
+        if(d < (2+4*lane + 2) && d > (2+4*lane -2)){
+            double vx = sensor_fusion[i][3];
+            double vy = sensor_fusion[i][4];
+            double check_speed = sqrt(vx*vx+vy*vy);
+            double check_car_s = sensor_fusion[i][5];
+            double dist = check_car_s-car_s;
+
+            check_car_s += ((double)prev_size*0.02*check_speed);
+            // change lane if next car in lane is min_dist*2 (no point in switching to a busy lane)
+            // and if no car is next or immediately behind
+            if((  (check_car_s > car_s) && (dist < MIN_DIST * 2)) || (dist < REAR_DIST)){
+               return false;
+            }
+        }
+    }
+    return true;
+}
+
 int main() {
   uWS::Hub h;
 
@@ -269,8 +292,13 @@ int main() {
                 }
             }
 
-            if(too_close)
+            if(too_close){
                 ref_vel -=.2;
+                if ((lane > 0) && lane_free(sensor_fusion, car_s, prev_size, lane - 1))
+                    lane-=1;
+                else if ((lane < 2) && lane_free(sensor_fusion, car_s, prev_size, lane + 1))
+                    lane+=1;
+            }
             else
                 if(ref_vel < M_VEL)
                     ref_vel+=.2;
