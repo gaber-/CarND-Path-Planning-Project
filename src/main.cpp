@@ -7,7 +7,11 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
+#include "spline.h"
 #include "json.hpp"
+
+#define M_VEL 49.5
+#define MIN_DIST 30
 
 using namespace std;
 
@@ -200,7 +204,10 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  double ref_vel = M_VEL;
+  int lane = 1;
+
+  h.onMessage([&ref_vel, &lane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -233,18 +240,131 @@ int main() {
           	// Previous path's end s and d values 
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
-
+            //vector<vector<double>> sensor_fusion = j[1]["sensor_fusion"];
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
-          	auto sensor_fusion = j[1]["sensor_fusion"];
+          	vector<vector<double>> sensor_fusion = j[1]["sensor_fusion"];
 
-          	json msgJson;
+            int prev_size = previous_path_x.size();
 
-          	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
+            // If previous path exists set last s value as current
+            /*
+            if (prev_size > 0)
+              car_s = end_path_s;   
+
+            bool too_close = false;
+            cout << 1;
+            
+            for(int i=0; i< sensor_fusion.size(); i++){
+                float d = sensor_fusion[i][6];
+                // check if car is in same lane
+                if(d < (2+4*lane + 2) && d > (2+4*lane -2)){
+                    double vx = sensor_fusion[i][3];
+                    double vy = sensor_fusion[i][4];
+                    double check_speed = sqrt(vx*vx+vy*vy);
+                    double check_car_s = sensor_fusion[i][5];
+                    double dist = check_car_s-car_s;
+
+                    check_car_s += ((double)prev_size*0.2*check_speed);
+                    if((check_car_s > car_s) && (dist < MIN_DIST)){
+                        // go slightly slower than car in front
+                        ref_vel = check_speed - 10; 
+                       // too_close = false;
+                    }
+                }
+            }
+            cout << 2;
+
+            if(too_close)
+                ref_vel -=.2;
+            else
+                if(ref_vel < M_VEL)
+                    ref_vel+=.2;
+            */
+
+          	vector<double> ptsx;
+          	vector<double> ptsy;
+
+            double r_x = car_x;
+            double r_y = car_y;
+            double r_yaw = deg2rad(car_yaw);
+
+            if (prev_size < 2){
+                double prev_car_x = car_x - cos(car_yaw);
+                double prev_car_y = car_y - sin(car_yaw);
+
+                ptsx.push_back(prev_car_x);
+                ptsx.push_back(car_x);
+
+                ptsy.push_back(prev_car_y);
+                ptsy.push_back(car_y);
+            } else {
+                r_x = previous_path_x[prev_size-1];
+                r_y = previous_path_y[prev_size-1];
+
+                double ref_x_prev = previous_path_x[prev_size-2];
+                double ref_y_prev = previous_path_y[prev_size-2];
+                r_yaw = atan2(r_y-ref_y_prev, r_x-ref_x_prev);
+
+                ptsx.push_back(ref_x_prev);
+                ptsx.push_back(r_x);
+
+                ptsy.push_back(ref_y_prev);
+                ptsy.push_back(r_y);
+            }
+
+            for (int i=1; i<4; i++){
+                vector<double> next_wp = getXY(car_s+30*i, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+                ptsx.push_back(next_wp[0]);
+                ptsy.push_back(next_wp[1]);
+            }
+
+            for (int i=0; i<ptsx.size(); i++){
+                double shift_x = ptsx[i] - r_x;
+                double shift_y = ptsy[i] - r_y;
+
+                ptsx[i] = (shift_x*cos(0-r_yaw)-shift_y*sin(0-r_yaw));
+                ptsy[i] = (shift_x*sin(0-r_yaw)+shift_y*cos(0-r_yaw));
+            }
+
+            tk::spline s;
+            s.set_points(ptsx, ptsy);
+
+            vector<double> next_x_vals;
+            vector<double> next_y_vals;
+            
+            for (int i=0; i<previous_path_x.size(); i++){
+                next_x_vals.push_back(previous_path_x[i]);
+                next_y_vals.push_back(previous_path_y[i]);
+            }
+
+            double target_x = 30;
+            double target_y = s(target_x);
+            double target_dist = sqrt(target_x*target_x + target_y*target_y);
+            double x_add_on = 0;
+
+            for (int i = 1; i <= 50-previous_path_x.size(); i++){
+                double N = target_dist/(0.02*ref_vel/2.24);
+                double x_point = x_add_on + target_x/N;
+                double y_point = s(x_point);
+
+                x_add_on = x_point;
+
+                double x_ref = x_point;
+                double y_ref = y_point;
+
+                x_point = x_ref*cos(r_yaw)-y_ref*sin(r_yaw);
+                y_point = x_ref*sin(r_yaw)+y_ref*cos(r_yaw);
+
+                x_point += r_x;
+                y_point += r_y;
+
+                next_x_vals.push_back(x_point);
+                next_y_vals.push_back(y_point);
+            }
 
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-            double dist_inc = 0.5;
+            /*double dist_inc = 0.5;
 			for(int i = 0; i < 50; i++)
 			{
               double next_s = car_s + (i+1) * dist_inc;
@@ -253,7 +373,9 @@ int main() {
 
 			  next_x_vals.push_back(xy[0]);
 			  next_y_vals.push_back(xy[1]);
-			} 
+            } */
+          	json msgJson;
+
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
