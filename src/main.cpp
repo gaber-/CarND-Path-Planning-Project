@@ -182,7 +182,7 @@ bool lane_free(vector<vector<double>> sensor_fusion, double car_s, int prev_size
             check_car_s += ((double)prev_size*0.02*check_speed);
             // change lane if next car in lane is min_dist*2 (no point in switching to a busy lane)
             // and if no car is next or immediately behind
-            if((  (check_car_s > car_s) && (dist < MIN_DIST * 2)) || (dist < REAR_DIST)){
+            if(((check_car_s > car_s) && (dist < MIN_DIST * 2)) || (fabs(dist) < REAR_DIST)){
                return false;
             }
         }
@@ -274,6 +274,7 @@ int main() {
               car_s = end_path_s;   
 
             bool too_close = false;
+            double check_speed = 0;
             
             for(int i=0; i< sensor_fusion.size(); i++){
                 float d = sensor_fusion[i][6];
@@ -281,7 +282,7 @@ int main() {
                 if(d < (2+4*lane + 2) && d > (2+4*lane -2)){
                     double vx = sensor_fusion[i][3];
                     double vy = sensor_fusion[i][4];
-                    double check_speed = sqrt(vx*vx+vy*vy);
+                    check_speed = sqrt(vx*vx+vy*vy);
                     double check_car_s = sensor_fusion[i][5];
                     double dist = check_car_s-car_s;
 
@@ -293,7 +294,12 @@ int main() {
             }
 
             if(too_close){
-                ref_vel -=.2;
+                //only slow down if going about as fast as next car
+                if (ref_vel > check_speed + 1)
+                    ref_vel -=.2;
+
+                //lane change logic
+
                 if ((lane > 0) && lane_free(sensor_fusion, car_s, prev_size, lane - 1))
                     lane-=1;
                 else if ((lane < 2) && lane_free(sensor_fusion, car_s, prev_size, lane + 1))
