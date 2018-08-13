@@ -10,9 +10,10 @@
 #include "spline.h"
 #include "json.hpp"
 
-#define M_VEL 49.5
+#define M_VEL 49.0
 #define MIN_DIST 30
-#define REAR_DIST 5
+#define MIN_PASS_SPEED 30
+#define REAR_DIST 18
 
 using namespace std;
 
@@ -168,7 +169,9 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
-bool lane_free(vector<vector<double>> sensor_fusion, double car_s, int prev_size, int lane){
+bool lane_free(vector<vector<double>> sensor_fusion, double car_s, int prev_size, double my_speed, int lane){
+    if (my_speed < MIN_PASS_SPEED)
+        return false;
     for(int i=0; i< sensor_fusion.size(); i++){
         float d = sensor_fusion[i][6];
         // check if car is in same lane
@@ -181,8 +184,8 @@ bool lane_free(vector<vector<double>> sensor_fusion, double car_s, int prev_size
 
             check_car_s += ((double)prev_size*0.02*check_speed);
             // change lane if next car in lane is min_dist*2 (no point in switching to a busy lane)
-            // and if no car is next or immediately behind
-            if(((check_car_s > car_s) && (dist < MIN_DIST * 2)) || (fabs(dist) < REAR_DIST)){
+            // and if no car is next or immediately behind, or the car behind is not going faster than us
+            if(((check_car_s > car_s) && (dist < MIN_DIST * 1.5)) || (fabs(dist) < REAR_DIST) || ((check_car_s < car_s) && (check_speed + 1 > my_speed))){
                return false;
             }
         }
@@ -293,21 +296,45 @@ int main() {
                 }
             }
 
+            // avoid jerk
+            static double count_acc = 0;
+
             if(too_close){
                 //only slow down if going about as fast as next car
-                if (ref_vel > check_speed + 1)
+                if ((ref_vel > check_speed + 1) && (ref_vel + count_acc > 0)){
                     ref_vel -=.2;
+                    count_acc -= 0.02;
+                }else{
+                    if (count_acc > 0)
+                        count_acc -= 0.02;
+                    if (count_acc < 0)
+                        count_acc += 0.02;
+                }
+
 
                 //lane change logic
 
-                if ((lane > 0) && lane_free(sensor_fusion, car_s, prev_size, lane - 1))
+                if ((lane > 0) && lane_free(sensor_fusion, car_s, prev_size, car_speed, lane - 1))
                     lane-=1;
-                else if ((lane < 2) && lane_free(sensor_fusion, car_s, prev_size, lane + 1))
+                else if ((lane < 2) && lane_free(sensor_fusion, car_s, prev_size, car_speed, lane + 1))
                     lane+=1;
             }
             else
-                if(ref_vel < M_VEL)
+                if(ref_vel + count_acc < M_VEL){
                     ref_vel+=.2;
+                    count_acc+=0.02;
+                } else{
+                    if (count_acc > 0)
+                        count_acc -= 0.02;
+                    if (count_acc < 0)
+                        count_acc += 0.02;
+                }
+
+            count_acc = count_acc > 0.2? 0.2: count_acc;
+            count_acc = count_acc < -0.2? -0.2: count_acc;
+
+            ref_vel +=count_acc;
+            ref_vel = ref_vel > 49.9? 49.9 : ref_vel;
 
           	vector<double> ptsx;
           	vector<double> ptsy;
