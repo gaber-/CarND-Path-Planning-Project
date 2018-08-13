@@ -204,7 +204,7 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  double ref_vel = M_VEL;
+  double ref_vel = 0.2;
   int lane = 1;
 
   h.onMessage([&ref_vel, &lane, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
@@ -247,12 +247,10 @@ int main() {
             int prev_size = previous_path_x.size();
 
             // If previous path exists set last s value as current
-            /*
             if (prev_size > 0)
               car_s = end_path_s;   
 
             bool too_close = false;
-            cout << 1;
             
             for(int i=0; i< sensor_fusion.size(); i++){
                 float d = sensor_fusion[i][6];
@@ -264,22 +262,18 @@ int main() {
                     double check_car_s = sensor_fusion[i][5];
                     double dist = check_car_s-car_s;
 
-                    check_car_s += ((double)prev_size*0.2*check_speed);
+                    check_car_s += ((double)prev_size*0.02*check_speed);
                     if((check_car_s > car_s) && (dist < MIN_DIST)){
-                        // go slightly slower than car in front
-                        ref_vel = check_speed - 10; 
-                       // too_close = false;
+                       too_close = true;
                     }
                 }
             }
-            cout << 2;
 
             if(too_close)
                 ref_vel -=.2;
             else
                 if(ref_vel < M_VEL)
                     ref_vel+=.2;
-            */
 
           	vector<double> ptsx;
           	vector<double> ptsy;
